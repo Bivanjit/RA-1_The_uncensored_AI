@@ -20,8 +20,9 @@ const applyRA1Branding = () => {
   const textNodes: Text[] = []
   let node: Node | null
 
-  while ((node = walker.nextNode())) {
-    if (node.nodeValue && Object.keys(replacements).some((key) => node.nodeValue!.includes(key))) {
+  while ((node = walker.nextNode()) !== null) {
+    const value = node.nodeValue
+    if (value && Object.keys(replacements).some((key) => value.includes(key))) {
       textNodes.push(node as Text)
     }
   }
