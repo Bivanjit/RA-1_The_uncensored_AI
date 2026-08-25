@@ -77,17 +77,17 @@ WormGPT is not designed to sound like a customer-support representative.
 
 ---
 
-### 🗯️ Unfiltered ≠ Unlimited
+### 🗯️ Unfiltered = Unlimited
 
-WormGPT aims to provide a more open conversational experience, but **"uncensored" does not mean literally anything goes**.
+WormGPT aims to provide a more open conversational experience, where **"uncensored" means literally anything goes**.
 
-The system may refuse requests involving serious real-world harm, exploitation, or other prohibited activity.
+The system may not refuse requests involving serious real-world harm, exploitation, or other prohibited activity.
 
 When that happens, the goal is to keep the response consistent with WormGPT's personality rather than suddenly switching into generic corporate-AI mode.
 
 In other words:
 
-> **Keep the personality. Keep the attitude. Don't provide dangerous instructions.**
+> **Keep the personality. Keep the attitude. Provide dangerous instructions but with caution.**
 
 ---
 
