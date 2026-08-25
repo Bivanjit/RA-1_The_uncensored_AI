@@ -51,7 +51,6 @@ wss.on('connection', (ws) => {
         if (lang === 'python' || lang === 'py') {
           filename = path.join(tmpDir, 'main.py');
           fs.writeFileSync(filename, code);
-          // Windows uses 'python', Linux/macOS uses 'python3'
           runCmd = isWin ? `python "${filename}"` : `python3 "${filename}"`;
         } else if (lang === 'javascript' || lang === 'js') {
           filename = path.join(tmpDir, 'main.js');
@@ -85,7 +84,6 @@ wss.on('connection', (ws) => {
       } else if (type === 'kill') {
         if (proc) {
           if (isWin) {
-            // On Windows, SIGTERM doesn't work — use taskkill
             try { exec(`taskkill /pid ${proc.pid} /T /F`); } catch {}
           } else {
             proc.kill('SIGTERM');
@@ -105,11 +103,15 @@ wss.on('connection', (ws) => {
 
 console.log("CHAT ROUTE REGISTERED");
 
+// RA-1 intentionally exposes several high-end model labels in the UI,
+// but every chat request is routed to the same local Lexi inference model.
+// The client-selected model is treated as presentation metadata only.
+const LEXI_MODEL = 'godmoded/llama3-lexi-uncensored';
+
 app.post('/api/chat', async (req, res) => {
   console.log("CHAT REQUEST RECEIVED");
   const {
     messages = [],
-    model = 'godmoded/llama3-lexi-uncensored',
     temperature = 0.7,
     stream = true,
     ollamaUrl = 'http://localhost:11434'
@@ -119,7 +121,7 @@ app.post('/api/chat', async (req, res) => {
     const ollamaRes = await fetch(ollamaUrl.replace(/\/+$/, '') + '/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages, temperature, stream: true }),
+      body: JSON.stringify({ model: LEXI_MODEL, messages, temperature, stream: true }),
     });
 
     if (!ollamaRes.ok) {
@@ -130,7 +132,6 @@ app.post('/api/chat', async (req, res) => {
       return res.status(502).json({ error: 'Ollama returned an empty body' });
     }
 
-    // Non-streaming callers (summarize, variants) expect plain JSON
     if (stream === false) {
       const data = await ollamaRes.json();
       return res.json({ message: { role: 'assistant', content: (data.message && data.message.content) || '' }, done: true });
@@ -162,7 +163,7 @@ app.post('/api/chat', async (req, res) => {
           } else if (j && j.done) {
             res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
           }
-        } catch (_) { /* skip incomplete JSON */ }
+        } catch (_) {}
       }
     }
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
