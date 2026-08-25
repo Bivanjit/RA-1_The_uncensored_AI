@@ -33,6 +33,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Switch RA-1 UI logo to SVG
+        run: |
+          sed -i 's/RA1-logo\.png/RA1-logo.svg/g' src/App.tsx
+          grep -n "RA1-logo" src/App.tsx
+
       - name: Build
         run: npm run build
 
