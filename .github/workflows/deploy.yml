@@ -41,6 +41,18 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Verify and fix built logo references
+        run: |
+          if grep -RIl 'RA1-logo\.png' dist | tee /tmp/logo_refs; then
+            xargs -r sed -i 's/RA1-logo\.png/RA1-logo.svg/g' < /tmp/logo_refs
+          fi
+          test -f dist/RA1-logo.svg
+          if grep -RIn 'RA1-logo\.png' dist; then
+            echo 'ERROR: stale PNG logo reference remains in the build.'
+            exit 1
+          fi
+          echo '✓ Built UI uses RA1-logo.svg'
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
