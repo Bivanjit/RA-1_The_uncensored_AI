@@ -266,3 +266,9 @@ div {
 .avatar-ring:hover {
   box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.5);
 }
+
+/* Make the login logo fill the existing 80x80 logo container */
+.password-overlay img[alt="RA-1"] {
+  width: 64px !important;
+  height: 64px !important;
+}
