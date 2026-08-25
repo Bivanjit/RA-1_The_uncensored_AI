@@ -154,8 +154,7 @@ The intended architecture is:
 
 ```text
 
-```
----
+
 
 User
  ↓
@@ -168,6 +167,8 @@ Credits + Authentication
 Safety / Request Processing
  ↓
 Remote AI Inference
+```
+---
 🔐 Privacy & Security
 
 Private infrastructure should remain server-side.
