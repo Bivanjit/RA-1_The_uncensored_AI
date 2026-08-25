@@ -1,0 +1,35 @@
+name: Fix RA-1 Logo Reference
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix-logo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Replace logo reference
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/App.tsx')
+          s = p.read_text()
+          old = '<img src="/ra1-logo.svg" alt="RA-1" width={size} height={size} className={`rounded-lg object-cover ${className}`} />'
+          new = '<img src={`${import.meta.env.BASE_URL}RA1-logo.png`} alt="RA-1" width={size} height={size} className={`rounded-lg object-cover ${className}`} />'
+          if old not in s:
+              raise SystemExit('Expected old logo reference was not found; no changes made.')
+          p.write_text(s.replace(old, new, 1))
+          PY
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/App.tsx
+          git commit -m "Use RA1-logo.png on GitHub Pages"
+          git push
