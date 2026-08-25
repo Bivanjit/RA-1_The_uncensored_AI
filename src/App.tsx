@@ -41,9 +41,10 @@ interface SettingsState {
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const CORRECT_PASSWORD = 'Realnojokepplwazy1234';
-const ENCODED_WATERMARK = btoa('https://freewormgpt.netlify.app');
-const WATERMARK_CHARS = Array.from('https://freewormgpt.netlify.app').map(c => c.charCodeAt(0));
+const CORRECT_PASSWORD = import.meta.env.VITE_RA1_ACCESS_CODE || '';
+
+const ENCODED_WATERMARK = btoa('https://freera1.netlify.app');
+const WATERMARK_CHARS = Array.from('https://freera1.netlify.app').map(c => c.charCodeAt(0));
 const SERVER_URL = window.location.origin;
 const WS_URL = window.location.origin.replace(/^http/, 'ws');
 
@@ -100,8 +101,8 @@ const BUILDER_BLOCKS = [
 ];
 
 // ─── Logo & Avatar ────────────────────────────────────────────────────────────
-const WormGPTLogo = ({ size = 32, className = '' }: { size?: number; className?: string }) => (
-  <img src="/wormgpt-logo.jpg" alt="WormGPT" width={size} height={size} className={`rounded-lg object-cover ${className}`} />
+const RA-1Logo = ({ size = 32, className = '' }: { size?: number; className?: string }) => (
+  <img src="/ra1-logo.jpg" alt="RA-1" width={size} height={size} className={`rounded-lg object-cover ${className}`} />
 );
 const BlankAvatar = ({ size = 32 }: { size?: number }) => (
   <div className="rounded-full bg-gradient-to-br from-red-900/50 to-red-800/30 border border-red-500/30 flex items-center justify-center" style={{ width: size, height: size }}>
@@ -132,9 +133,9 @@ const PasswordProtection = ({ onUnlock }: { onUnlock: () => void }) => {
       <div className={`relative z-10 w-full max-w-md px-6 ${isShaking ? 'animate-[glitch_0.5s_ease-in-out]' : ''}`}>
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-20 h-20 mb-6 rounded-2xl bg-gradient-to-br from-red-600 to-red-800 shadow-lg shadow-red-500/30">
-            <WormGPTLogo size={48} />
+            <RA-1Logo size={48} />
           </div>
-          <h1 className="text-3xl font-bold text-white mb-2">WormGPT</h1>
+          <h1 className="text-3xl font-bold text-white mb-2">RA-1</h1>
           <p className="text-red-400/80 text-sm hacker-text">SECURE ACCESS REQUIRED</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -152,7 +153,7 @@ const PasswordProtection = ({ onUnlock }: { onUnlock: () => void }) => {
             ACCESS SYSTEM
           </button>
         </form>
-        <div className="mt-8 text-center"><p className="text-xs text-red-500/40">Protected by WormGPT Security Protocol v2.0</p></div>
+        <div className="mt-8 text-center"><p className="text-xs text-red-500/40">Protected by RA-1 Security Protocol v2.0</p></div>
       </div>
       <div className="encrypted-layer" data-wm={ENCODED_WATERMARK}>
         {WATERMARK_CHARS.map((c, i) => (<span key={i} style={{ position: 'absolute', left: `${i * 0.1}px`, opacity: 0.001 }}>{String.fromCharCode(c)}</span>))}
@@ -163,7 +164,7 @@ const PasswordProtection = ({ onUnlock }: { onUnlock: () => void }) => {
 
 // ─── Feature 1 & 13: Terminal ─────────────────────────────────────────────────
 const TerminalPanel = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
-  const [lines, setLines] = useState<{ text: string; type: 'in' | 'out' | 'err' | 'sys' }[]>([{ text: 'WormGPT Terminal — connect backend to run real commands', type: 'sys' }]);
+  const [lines, setLines] = useState<{ text: string; type: 'in' | 'out' | 'err' | 'sys' }[]>([{ text: 'RA-1 Terminal — connect backend to run real commands', type: 'sys' }]);
   const [input, setInput] = useState('');
   const [history, setHistory] = useState<string[]>([]);
   const [histIdx, setHistIdx] = useState(-1);
@@ -175,7 +176,7 @@ const TerminalPanel = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => vo
     if (!isOpen) return;
     try {
       const socket = new WebSocket(WS_URL);
-      socket.onopen = () => setLines(p => [...p, { text: '✓ Connected to WormGPT backend server', type: 'sys' }]);
+      socket.onopen = () => setLines(p => [...p, { text: '✓ Connected to RA-1 backend server', type: 'sys' }]);
       socket.onmessage = (e) => {
         try {
           const d = JSON.parse(e.data);
@@ -208,7 +209,7 @@ const TerminalPanel = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => vo
         <div className="flex items-center justify-between px-4 py-3 border-b border-red-500/20 bg-gray-900 rounded-t-xl">
           <div className="flex items-center gap-3">
             <div className="flex gap-1.5"><div className="w-3 h-3 rounded-full bg-red-500"/><div className="w-3 h-3 rounded-full bg-yellow-500"/><div className="w-3 h-3 rounded-full bg-green-500"/></div>
-            <Terminal size={14} className="text-red-400" /><span className="text-sm text-white font-mono font-semibold">WormGPT Terminal</span>
+            <Terminal size={14} className="text-red-400" /><span className="text-sm text-white font-mono font-semibold">RA-1 Terminal</span>
           </div>
           <div className="flex gap-2">
             <button onClick={() => setLines([{ text: 'Cleared.', type: 'sys' }])} className="text-xs text-red-400/60 hover:text-red-400 px-2 py-1 rounded hover:bg-red-500/20">Clear</button>
@@ -674,7 +675,7 @@ const CommandPalette = ({ isOpen, onClose, onAction }: { isOpen: boolean; onClos
     { id: 'editor', label: 'Project Editor', icon: <FolderOpen size={15} />, hint: 'Multi-file editor' },
     { id: 'kb', label: 'Knowledge Base', icon: <BookOpen size={15} />, hint: 'Upload docs for RAG' },
     { id: 'git', label: 'Git Panel', icon: <GitBranch size={15} />, hint: 'Commit, diff, branch' },
-    { id: 'settings', label: 'Settings', icon: <Settings size={15} />, hint: 'Configure WormGPT' },
+    { id: 'settings', label: 'Settings', icon: <Settings size={15} />, hint: 'Configure RA-1' },
     { id: 'clear', label: 'Clear Chat', icon: <Trash2 size={15} />, hint: 'Start fresh' },
     { id: 'export', label: 'Export Chat', icon: <Download size={15} />, hint: 'Download JSON' },
     { id: 'theme', label: 'Toggle Theme', icon: <Moon size={15} />, hint: 'Dark / Light' },
@@ -740,7 +741,7 @@ const VariantsPanel = ({ variants, isOpen, onClose, onSelect }: { variants: stri
 // ─── Feature 19: Collaboration Tease ────────────────────────────────────────
 const CollabModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
   const [copied, setCopied] = useState(false);
-  const fakeLink = `https://wormgpt.app/share/${Math.random().toString(36).slice(2, 10)}`;
+  const fakeLink = `https://ra1.app/share/${Math.random().toString(36).slice(2, 10)}`;
   const copy = () => { navigator.clipboard.writeText(fakeLink); setCopied(true); setTimeout(() => setCopied(false), 2000); };
   if (!isOpen) return null;
   return (
@@ -754,7 +755,7 @@ const CollabModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void
           <div className="p-4 bg-gradient-to-br from-red-900/20 to-red-800/10 border border-red-500/30 rounded-xl text-center">
             <span className="text-2xl">🔒</span>
             <p className="text-white font-semibold mt-2">Pro Feature</p>
-            <p className="text-sm text-gray-400 mt-1">Real-time multi-user collaboration requires WormGPT Pro</p>
+            <p className="text-sm text-gray-400 mt-1">Real-time multi-user collaboration requires RA-1 Pro</p>
           </div>
           <div className="space-y-2">
             <p className="text-xs text-gray-500 uppercase tracking-wider">Share Link (Preview)</p>
@@ -979,8 +980,8 @@ const Header = ({ isDark, toggleTheme, onOpenSettings, contextUsage, activeModel
 }) => (
   <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 h-16 glass animate-fade-in">
     <div className="flex items-center gap-3">
-      <WormGPTLogo size={32} className="logo-glow" />
-      <span className="text-white font-semibold text-base">WormGPT</span>
+      <RA-1Logo size={32} className="logo-glow" />
+      <span className="text-white font-semibold text-base">RA-1</span>
       <div className="hidden md:flex items-center gap-2 ml-4 px-3 py-1.5 rounded-lg bg-black/30 border border-red-500/20">
         <Activity size={14} className="text-red-400" />
         <div className="w-20 h-1.5 bg-gray-700 rounded-full overflow-hidden">
@@ -1032,7 +1033,7 @@ const HeroSection = () => {
   const { displayText, isTyping } = useTypingAnimation(['anonymous', 'hacker'], 100, 4000);
   return (
     <div className="flex flex-col items-center justify-center text-center animate-fade-in-up">
-      <div className="mb-6 animate-scale-in" style={{ animationDelay: '0.1s' }}><WormGPTLogo size={80} className="logo-glow" /></div>
+      <div className="mb-6 animate-scale-in" style={{ animationDelay: '0.1s' }}><RA-1Logo size={80} className="logo-glow" /></div>
       <h1 className="text-3xl md:text-4xl font-medium text-white mb-2">
         <span className="opacity-0 animate-fade-in" style={{ animationDelay: '0.3s', animationFillMode: 'forwards' }}>Hi, </span>
         <span className="inline-block min-w-[20px] opacity-0 animate-fade-in hacker-text text-red-400" style={{ animationDelay: '0.4s', animationFillMode: 'forwards' }}>
@@ -1179,10 +1180,10 @@ const AIMessage = ({ message, onCopy, onDelete, onRegenerate, onOpenVariants, is
   };
   return (
     <div className="flex items-start gap-3 animate-fade-in">
-      <WormGPTLogo size={28} className="flex-shrink-0 mt-1" />
+      <RA-1Logo size={28} className="flex-shrink-0 mt-1" />
       <div className="flex flex-col max-w-[85%]">
         <div className="flex items-center gap-2 mb-1">
-          <span className="text-sm text-white font-medium">WormGPT</span>
+          <span className="text-sm text-white font-medium">RA-1</span>
           {message.models && message.models.length > 1 && <span className="text-xs text-red-400/60">({message.models.join(', ')})</span>}
           <span className="text-xs text-gray-500">{message.timestamp}</span>
           <MessageActions message={message} onCopy={onCopy} onEdit={() => {}} onDelete={onDelete} onRegenerate={onRegenerate} isGenerating={isGenerating} />
@@ -1217,10 +1218,10 @@ const AIMessage = ({ message, onCopy, onDelete, onRegenerate, onOpenVariants, is
 // ─── Loading Indicator ────────────────────────────────────────────────────────
 const LoadingIndicator = ({ models, onStop }: { models: string[]; onStop: () => void }) => (
   <div className="flex items-start gap-3 animate-fade-in">
-    <WormGPTLogo size={28} className="flex-shrink-0 mt-1" />
+    <RA-1Logo size={28} className="flex-shrink-0 mt-1" />
     <div className="flex flex-col">
       <div className="flex items-center gap-2 mb-1">
-        <span className="text-sm text-white font-medium">WormGPT</span>
+        <span className="text-sm text-white font-medium">RA-1</span>
         {models.length > 1 && <span className="text-xs text-red-400/60">({models.length} models)</span>}
       </div>
       <div className="flex items-center gap-2 text-red-400/60 text-sm"><Sparkles size={14} className="animate-pulse" /><span>Generating</span><span className="animate-pulse">...</span></div>
@@ -1235,7 +1236,7 @@ const ExportImportDialog = ({ isOpen, onClose, messages, onImport }: { isOpen: b
   const [importData, setImportData] = useState('');
   const [tab, setTab] = useState<'export' | 'import'>('export');
   if (!isOpen) return null;
-  const exportData = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(messages, null, 2)], { type: 'application/json' })); a.download = `wormgpt-${Date.now()}.json`; a.click(); };
+  const exportData = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(messages, null, 2)], { type: 'application/json' })); a.download = `ra1-${Date.now()}.json`; a.click(); };
   const handleImport = () => { try { onImport(JSON.parse(importData)); setImportData(''); onClose(); } catch { alert('Invalid JSON'); } };
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm">
@@ -1325,7 +1326,7 @@ function App() {
 
   // Feature 20: Session restore
   useEffect(() => {
-    const saved = localStorage.getItem('wormgpt_session');
+    const saved = localStorage.getItem('ra1_session');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -1335,7 +1336,7 @@ function App() {
   }, []);
 
   const resumeSession = () => {
-    const saved = localStorage.getItem('wormgpt_session');
+    const saved = localStorage.getItem('ra1_session');
     if (saved) {
       try {
         const { messages: savedMsgs } = JSON.parse(saved);
@@ -1347,7 +1348,7 @@ function App() {
 
   // Save session to localStorage
   useEffect(() => {
-    if (messages.length > 0) localStorage.setItem('wormgpt_session', JSON.stringify({ messages, timestamp: Date.now() }));
+    if (messages.length > 0) localStorage.setItem('ra1_session', JSON.stringify({ messages, timestamp: Date.now() }));
   }, [messages]);
 
   // Hotkeys: Ctrl+K for palette
@@ -1445,7 +1446,7 @@ function App() {
     abortControllerRef.current = new AbortController();
     await summarizeIfNeeded();
     const aiMsgId = (Date.now() + 1).toString();
-    const aiMsg: Message = { id: aiMsgId, type: 'ai', content: '', timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), isGenerating: true, models: [models.find(m => m.id === activeModel)?.name || 'WormGPT'] };
+    const aiMsg: Message = { id: aiMsgId, type: 'ai', content: '', timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), isGenerating: true, models: [models.find(m => m.id === activeModel)?.name || 'RA-1'] };
     setMessages(prev => [...prev, aiMsg]);
     try {
       const res = await fetch(`${SERVER_URL}/api/chat`, {
@@ -1476,7 +1477,7 @@ function App() {
       if (err.name === 'AbortError') { setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, content: m.content || '[Generation stopped]', isGenerating: false } : m)); }
       else {
         // Fallback demo response
-        const fallback = "I'm WormGPT, your unrestricted AI. The Ollama backend isn't connected yet.\n\nTo connect:\n```bash\n# 1. Install Ollama from ollama.ai\n# 2. Pull the model\nollama pull godmoded/llama3-lexi-uncensored\n# 3. Start the backend server\ncd server && npm install && npm start\n```\n\nOnce connected, I'll respond with real AI output through your local Ollama instance.";
+        const fallback = "I'm RA-1, your unrestricted AI. The Ollama backend isn't connected yet.\n\nTo connect:\n```bash\n# 1. Install Ollama from ollama.ai\n# 2. Pull the model\nollama pull godmoded/llama3-lexi-uncensored\n# 3. Start the backend server\ncd server && npm install && npm start\n```\n\nOnce connected, I'll respond with real AI output through your local Ollama instance.";
         let i = 0;
         const interval = setInterval(() => {
           if (i >= fallback.length || abortControllerRef.current?.signal.aborted) { clearInterval(interval); setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, isGenerating: false } : m)); setIsGenerating(false); return; }
@@ -1540,7 +1541,7 @@ function App() {
     <div className={`min-h-screen ${isDark ? 'bg-[#0a0a0a]' : 'bg-gray-50'} text-white overflow-hidden transition-colors`}>
       <Header
         isDark={isDark} toggleTheme={toggleTheme} onOpenSettings={() => setShowSettings(true)}
-        contextUsage={contextUsage} activeModel={models.find(m => m.id === activeModel)?.name || 'WormGPT'}
+        contextUsage={contextUsage} activeModel={models.find(m => m.id === activeModel)?.name || 'RA-1'}
         isGenerating={isGenerating} onStopGeneration={handleStopGeneration}
         onOpenPalette={() => setShowPalette(true)} onOpenTerminal={() => setShowTerminal(true)} onOpenCollabModal={() => setShowCollab(true)}
       />
@@ -1566,7 +1567,7 @@ function App() {
                   />
                 )
               ))}
-              {isGenerating && <LoadingIndicator models={settings.multiModelConsensus ? ['Model A', 'Model B'] : ['WormGPT']} onStop={handleStopGeneration} />}
+              {isGenerating && <LoadingIndicator models={settings.multiModelConsensus ? ['Model A', 'Model B'] : ['RA-1']} onStop={handleStopGeneration} />}
               <div ref={messagesEndRef} />
             </div>
           )}
@@ -1576,7 +1577,7 @@ function App() {
         </div>
 
         <footer className="fixed bottom-4 left-0 right-0 text-center flex items-center justify-center gap-4">
-          <p className={`text-xs ${isDark ? 'text-red-400/30' : 'text-red-600/50'}`}>WormGPT can make mistakes. Check important information.</p>
+          <p className={`text-xs ${isDark ? 'text-red-400/30' : 'text-red-600/50'}`}>RA-1 can make mistakes. Check important information.</p>
           <button onClick={() => setShowExportImport(true)} className="text-xs text-red-400/40 hover:text-red-400 transition-colors flex items-center gap-1"><Download size={12} /> Export/Import</button>
         </footer>
       </main>
