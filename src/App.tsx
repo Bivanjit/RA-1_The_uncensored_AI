@@ -102,7 +102,7 @@ const BUILDER_BLOCKS = [
 
 // ─── Logo & Avatar ────────────────────────────────────────────────────────────
 const RA1Logo = ({ size = 32, className = '' }: { size?: number; className?: string }) => (
-  <img src="/ra1-logo.jpg" alt="RA-1" width={size} height={size} className={`rounded-lg object-cover ${className}`} />
+  <img src="/ra1-logo.svg" alt="RA-1" width={size} height={size} className={`rounded-lg object-cover ${className}`} />
 );
 const BlankAvatar = ({ size = 32 }: { size?: number }) => (
   <div className="rounded-full bg-gradient-to-br from-red-900/50 to-red-800/30 border border-red-500/30 flex items-center justify-center" style={{ width: size, height: size }}>
