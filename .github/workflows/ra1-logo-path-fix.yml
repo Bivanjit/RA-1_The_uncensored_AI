@@ -1,0 +1,23 @@
+name: RA-1 logo path fix
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sed -i 's#/ra1-logo.jpg#/ra1-logo.svg#g' src/App.tsx
+          git config user.name 'RA-1 Bot'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          rm -f .github/workflows/ra1-logo-path-fix.yml
+          git add src/App.tsx .github/workflows/ra1-logo-path-fix.yml
+          git diff --cached --quiet || git commit -m 'Fix RA-1 logo asset path'
+          git push
