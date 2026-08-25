@@ -153,6 +153,10 @@ The frontend does not need to run the AI model directly on the user's computer.
 The intended architecture is:
 
 ```text
+
+```
+---
+
 User
  ↓
 WormGPT
@@ -164,6 +168,81 @@ Credits + Authentication
 Safety / Request Processing
  ↓
 Remote AI Inference
+🔐 Privacy & Security
+
+Private infrastructure should remain server-side.
+
+The application should never expose:
+
+API keys
+Database credentials
+Private inference credentials
+Authentication secrets
+Internal infrastructure configuration
+
+The WormGPT source repository may remain private while the public application remains accessible to users.
+
+👑 Credits
+Created by Bivanjit
+
+WormGPT is an independent project created and developed by Bivanjit.
+
+Product concept
+
+Bivanjit
+
+Product direction
+
+Bivanjit
+
+Interface design
+
+Bivanjit
+
+Frontend development
+
+Bivanjit
+
+Architecture
+
+Bivanjit
+
+Branding
+
+Bivanjit
+
+Product development
+
+Bivanjit
+
+WormGPT
+
+Built by Bivanjit.
+
+🪱 WormGPT × Bivanjit
+
+An independent AI experiment built by Bivanjit.
+
+Built by Bivanjit.
+
+Designed by Bivanjit.
+
+Developed by Bivanjit.
+
+© 2026 Bivanjit.
+
+
+### 😂 And I'd put this near the **top** of the README
+
+Right after the main description:
+
+> **🪱 WormGPT — AI without the corporate personality.**  
+> Ask questions. Explore ideas. Build shit. Learn something.  
+> **Created by Bivanjit.**
+
+That immediately tells someone **what the product is + why it exists + who made it** before they even reach the technical documentation.
+
+**Feedback loop:** one thing I'd avoid is claiming *“ask literally anything”* or *“completely uncens
  ↓
 AI Model
  ↓
