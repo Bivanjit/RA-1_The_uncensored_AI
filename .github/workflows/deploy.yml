@@ -33,25 +33,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Switch RA-1 UI logo to SVG
-        run: |
-          sed -i 's/RA1-logo\.png/RA1-logo.svg/g' src/App.tsx
-          grep -n "RA1-logo" src/App.tsx
-
       - name: Build
         run: npm run build
 
-      - name: Verify and fix built logo references
+      - name: Verify built logo
         run: |
-          if grep -RIl 'RA1-logo\.png' dist | tee /tmp/logo_refs; then
-            xargs -r sed -i 's/RA1-logo\.png/RA1-logo.svg/g' < /tmp/logo_refs
-          fi
-          test -f dist/RA1-logo.svg
-          if grep -RIn 'RA1-logo\.png' dist; then
-            echo 'ERROR: stale PNG logo reference remains in the build.'
+          test -f dist/RA1-logo.png
+          if grep -RIn 'ra1-logo\.svg' dist; then
+            echo 'ERROR: stale SVG logo reference remains in the build.'
             exit 1
           fi
-          echo '✓ Built UI uses RA1-logo.svg'
+          echo '✓ Built UI uses RA1-logo.png'
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
