@@ -35,8 +35,9 @@ const applyRA1Branding = () => {
     text.nodeValue = value
   }
 
-  document.querySelectorAll<HTMLImageElement>('img[src="/wormgpt-logo.jpg"]').forEach((img) => {
-    img.src = '/ra1-logo.svg'
+  const logoSrc = `${import.meta.env.BASE_URL}ra1-logo.svg`
+  document.querySelectorAll<HTMLImageElement>('img[src="/wormgpt-logo.jpg"], img[alt="RA-1"]').forEach((img) => {
+    if (img.src !== new URL(logoSrc, window.location.href).href) img.src = logoSrc
     img.alt = 'RA-1'
   })
 
