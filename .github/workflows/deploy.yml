@@ -11,13 +11,10 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
-  cancel-in-progress: true
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
-  # Temporary frontend-only test code. This is NOT secure authentication because
-  # GitHub Pages ships the value to the browser. Replace with real server-side auth
-  # before public launch.
   VITE_RA1_ACCESS_CODE: RA1TEST2026
 
 jobs:
