@@ -153,9 +153,6 @@ The frontend does not need to run the AI model directly on the user's computer.
 The intended architecture is:
 
 ```text
-
-
-
 User
  ↓
 WormGPT
@@ -233,20 +230,3 @@ Developed by Bivanjit.
 © 2026 Bivanjit.
 
 
-### 😂 And I'd put this near the **top** of the README
-
-Right after the main description:
-
-> **🪱 WormGPT — AI without the corporate personality.**  
-> Ask questions. Explore ideas. Build shit. Learn something.  
-> **Created by Bivanjit.**
-
-That immediately tells someone **what the product is + why it exists + who made it** before they even reach the technical documentation.
-
-**Feedback loop:** one thing I'd avoid is claiming *“ask literally anything”* or *“completely uncens
- ↓
-AI Model
- ↓
-WormGPT
- ↓
-User
