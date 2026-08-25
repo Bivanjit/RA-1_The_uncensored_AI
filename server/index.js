@@ -221,7 +221,7 @@ app.post('/api/git/commit', async (req, res) => {
   try {
     const git = gitR(req.body.repoPath);
     if (req.body.files?.length) await git.add(req.body.files); else await git.add('.');
-    res.json({ result: await git.commit(req.body.message || 'WormGPT commit') });
+    res.json({ result: await git.commit(req.body.message || 'RA-1 commit') });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/git/branch', async (req, res) => { try { await gitR(req.body.repoPath).checkoutLocalBranch(req.body.name); res.json({ success: true }); } catch(e) { res.status(500).json({ error: e.message }); } });
@@ -234,7 +234,6 @@ if (fs.existsSync(distPath)) {
 
 const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, () => {
-  console.log(`\n WormGPT Server running at http://localhost:${PORT}`);
-  console.log(` WebSocket at ws://localhost:${PORT}\n`);
-  console.log(` Password: Realnojokepplwazy1234\n`);
+  console.log(`\n RA-1 Server running at http://localhost:${PORT}`);
+  console.log(` WebSocket at ws://localhost:${PORT}`);
 });

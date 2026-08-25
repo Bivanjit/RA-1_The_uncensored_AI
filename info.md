@@ -1,4 +1,10 @@
-# WormGPT Frontend Project Specification
+# RA-1 Frontend Project Specification
+
+## Brand
+
+**RA-1 — The Uncensored AI**
+
+The project is being rebranded from its previous internal name to RA-1. This is a branding-only change: the existing model layer, Lexi/Ollama configuration, UI components and backend behavior should remain intact unless explicitly changed later.
 
 ## Technology Stack
 
@@ -9,74 +15,31 @@
 - TypeScript
 - shadcn/ui theme
 
-Tailwind CSS has been set up with the shadcn theme.
-
 ## Project Goal
 
-Build a polished, modern, responsive WormGPT-style web application.
+Build a polished, modern, responsive RA-1 web application.
 
-The interface should feel distinctive, dark, bold, modern, and technical rather than like a generic AI chatbot.
+The interface should feel distinctive, dark, bold, modern and technical rather than like a generic AI chatbot.
 
-The application should be structured so that the frontend can later connect to a remote backend/API without requiring a major rewrite.
+The application should be structured so the frontend can connect to remote inference without requiring a major UI rewrite.
 
-## Components
+## Brand Direction
 
-The project includes the following shadcn/ui components:
+- Name: **RA-1**
+- Positioning: **The Uncensored AI**
+- Tone: direct, bold, informal and technical
+- Visual direction: dark interface, red accent, angular AI-system identity
+- Public-facing attribution: RA-1 brand only
+- No personal social-media or Telegram links in the product documentation
 
-- accordion
-- alert-dialog
-- alert
-- aspect-ratio
-- avatar
-- badge
-- breadcrumb
-- button-group
-- button
-- calendar
-- card
-- carousel
-- chart
-- checkbox
-- collapsible
-- command
-- context-menu
-- dialog
-- drawer
-- dropdown-menu
-- empty
-- field
-- form
-- hover-card
-- input-group
-- input-otp
-- input
-- item
-- kbd
-- label
-- menubar
-- navigation-menu
-- pagination
-- popover
-- progress
-- radio-group
-- resizable
-- scroll-area
-- select
-- separator
-- sheet
-- sidebar
-- skeleton
-- slider
-- sonner
-- spinner
-- switch
-- table
-- tabs
-- textarea
-- toggle-group
-- toggle
-- tooltip
+## Rebrand Scope
 
-```tsx
-import { Button } from '@/components/ui/button'
-import { Card, CardHeader, CardTitle } from '@/components/ui/card'
+Only the following areas should be changed as part of the rebrand:
+
+1. Product name
+2. Logo / favicon
+3. README and project information
+4. Public-facing branding text
+5. Removal of personal social/Telegram links if present
+
+Do **not** alter the existing Lexi/Ollama model configuration or unrelated application features as part of the branding pass.
