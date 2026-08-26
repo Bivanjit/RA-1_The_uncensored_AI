@@ -7,9 +7,6 @@ ENVIRONMENT = "development"
 # Set PUBLIC_ORIGIN to the exact production frontend origin before production deployment.
 # PUBLIC_ORIGIN = "https://your-app.example"
 
-[secrets]
-required = ["INFERENCE_URL", "RA1_ACCESS_CODE"]
-
 [[d1_databases]]
 binding = "DB"
 database_name = "ra-1-db"
@@ -54,5 +51,9 @@ namespace_id = "1105"
 [ratelimits.simple]
 limit = 60
 period = 60
+
+# Secrets such as INFERENCE_URL and RA1_ACCESS_CODE are managed in Cloudflare.
+# They are intentionally not declared as required here so Wrangler deployments
+# from CI do not fail before the deployed Worker can receive its secrets.
 
 # Apply the schema/migrations with Wrangler or the Cloudflare D1 console.
