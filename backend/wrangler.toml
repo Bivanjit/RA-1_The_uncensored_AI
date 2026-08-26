@@ -4,7 +4,7 @@ compatibility_date = "2026-08-26"
 
 [vars]
 ENVIRONMENT = "development"
-# Set PUBLIC_ORIGIN to the exact production frontend origin before deployment.
+# Set PUBLIC_ORIGIN to the exact production frontend origin before production deployment.
 # PUBLIC_ORIGIN = "https://your-app.vercel.app"
 
 [[d1_databases]]
@@ -12,5 +12,44 @@ binding = "DB"
 database_name = "ra-1-db"
 database_id = "dfde2b4b-b6e6-45f7-acf1-86e8979147df"
 
-# Apply the schema with:
-# wrangler d1 execute ra-1-db --file=./schema.sql
+[[ratelimits]]
+name = "LOGIN_LIMITER"
+namespace_id = "1101"
+
+[ratelimits.simple]
+limit = 5
+period = 60
+
+[[ratelimits]]
+name = "REGISTER_LIMITER"
+namespace_id = "1102"
+
+[ratelimits.simple]
+limit = 5
+period = 60
+
+[[ratelimits]]
+name = "TRIAL_LIMITER"
+namespace_id = "1103"
+
+[ratelimits.simple]
+limit = 5
+period = 60
+
+[[ratelimits]]
+name = "INTERNAL_TRIAL_LIMITER"
+namespace_id = "1104"
+
+[ratelimits.simple]
+limit = 10
+period = 60
+
+[[ratelimits]]
+name = "CHAT_LIMITER"
+namespace_id = "1105"
+
+[ratelimits.simple]
+limit = 60
+period = 60
+
+# Apply the schema/migrations with Wrangler or the Cloudflare D1 console.
