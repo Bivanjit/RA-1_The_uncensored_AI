@@ -34,6 +34,7 @@ jobs:
       - name: Build frontend
         env:
           VITE_RA1_ACCESS_CODE: RA1TEST2026
+          VITE_RA1_API_URL: ${{ vars.VITE_RA1_API_URL }}
         run: npm run build
 
       - name: Setup Pages
