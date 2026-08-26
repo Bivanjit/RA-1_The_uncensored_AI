@@ -5,10 +5,10 @@ compatibility_date = "2026-08-26"
 [vars]
 ENVIRONMENT = "development"
 # Set PUBLIC_ORIGIN to the exact production frontend origin before production deployment.
-# PUBLIC_ORIGIN = "https://your-app.vercel.app"
+# PUBLIC_ORIGIN = "https://your-app.example"
 
 [secrets]
-required = ["INFERENCE_URL"]
+required = ["INFERENCE_URL", "RA1_ACCESS_CODE"]
 
 [[d1_databases]]
 binding = "DB"
