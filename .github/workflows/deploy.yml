@@ -34,7 +34,7 @@ jobs:
       - name: Build frontend
         env:
           VITE_RA1_ACCESS_CODE: RA1TEST2026
-          VITE_RA1_API_URL: ${{ vars.VITE_RA1_API_URL }}
+          VITE_RA1_API_URL: https://ra-1-the-uncensored-ai.paulbivanjit.workers.dev
         run: npm run build
 
       - name: Setup Pages
