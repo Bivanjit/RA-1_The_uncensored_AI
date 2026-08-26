@@ -2,7 +2,9 @@ import baseWorker from "./index";
 
 interface InferenceEnv {
   INFERENCE_URL?: string;
+  RA1_ACCESS_CODE?: string;
   PUBLIC_ORIGIN?: string;
+  CHAT_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> };
   [key: string]: unknown;
 }
 
@@ -16,36 +18,37 @@ function countWords(value: string): number {
   return normalized ? normalized.split(/\s+/u).length : 0;
 }
 
-function copyHeaders(source: Headers, contentType = "application/json; charset=utf-8"): Headers {
-  const headers = new Headers();
-  const allow = source.get("access-control-allow-origin");
-  const vary = source.get("vary");
-  if (allow) headers.set("access-control-allow-origin", allow);
-  if (vary) headers.set("vary", vary);
-  for (const name of [
-    "x-content-type-options",
-    "x-frame-options",
-    "referrer-policy",
-    "permissions-policy",
-    "content-security-policy",
-    "strict-transport-security",
-  ]) {
-    const value = source.get(name);
-    if (value) headers.set(name, value);
+function corsOrigin(request: Request, env: InferenceEnv): string | null {
+  const origin = request.headers.get("origin");
+  if (!origin) return null;
+  if (env.PUBLIC_ORIGIN) return origin === env.PUBLIC_ORIGIN ? origin : null;
+  return origin;
+}
+
+function responseHeaders(request: Request, env: InferenceEnv, contentType = "application/json; charset=utf-8"): Headers {
+  const headers = new Headers({
+    "content-type": contentType,
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+  });
+  const origin = corsOrigin(request, env);
+  if (origin) {
+    headers.set("access-control-allow-origin", origin);
+    headers.set("access-control-allow-methods", "POST, OPTIONS");
+    headers.set("access-control-allow-headers", "content-type, authorization, x-ra1-access-code");
+    headers.set("vary", "Origin");
   }
-  headers.set("content-type", contentType);
-  headers.set("cache-control", "no-store");
   return headers;
 }
 
-function jsonResponse(body: Record<string, unknown>, status: number, source: Response): Response {
+function jsonResponse(request: Request, env: InferenceEnv, body: Record<string, unknown>, status: number): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: copyHeaders(source.headers),
+    headers: responseHeaders(request, env),
   });
 }
 
-function sseResponse(content: string, source: Response): Response {
+function sseResponse(request: Request, env: InferenceEnv, content: string): Response {
   const payload = [
     `data: ${JSON.stringify({ message: { role: "assistant", content }, done: true })}`,
     "data: [DONE]",
@@ -54,7 +57,7 @@ function sseResponse(content: string, source: Response): Response {
   ].join("\n");
   return new Response(payload, {
     status: 200,
-    headers: copyHeaders(source.headers, "text/event-stream; charset=utf-8"),
+    headers: responseHeaders(request, env, "text/event-stream; charset=utf-8"),
   });
 }
 
@@ -64,11 +67,7 @@ function internalRequest(request: Request, pathname: string, method = "GET", bod
   url.search = "";
   const headers = new Headers(request.headers);
   if (body !== undefined) headers.set("content-type", "application/json");
-  return new Request(url.toString(), {
-    method,
-    headers,
-    body,
-  });
+  return new Request(url.toString(), { method, headers, body });
 }
 
 function buildPrompt(messages: unknown): { prompt: string; wordCount: number } | null {
@@ -96,6 +95,24 @@ function buildPrompt(messages: unknown): { prompt: string; wordCount: number } |
   return { prompt, wordCount: countWords(prompt) };
 }
 
+async function accessCodeAllowed(request: Request, env: InferenceEnv): Promise<boolean> {
+  if (!env.RA1_ACCESS_CODE) return false;
+  const provided = request.headers.get("x-ra1-access-code") ?? "";
+  if (provided.length < 8 || provided.length > 256) return false;
+  if (provided !== env.RA1_ACCESS_CODE) return false;
+
+  if (env.CHAT_LIMITER) {
+    const ip = request.headers.get("cf-connecting-ip") || "unknown";
+    try {
+      const limited = await env.CHAT_LIMITER.limit({ key: `access-chat:${ip}` });
+      if (!limited.success) return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
 export default {
   async fetch(request: Request, env: InferenceEnv): Promise<Response> {
     const url = new URL(request.url);
@@ -104,48 +121,67 @@ export default {
       return baseWorker.fetch(request, env as never);
     }
 
-    if (request.method !== "POST") {
-      return baseWorker.fetch(request, env as never);
+    if (request.method === "OPTIONS") {
+      const headers = responseHeaders(request, env);
+      return new Response(null, { status: 204, headers });
     }
 
-    // Reuse the existing authenticated session endpoint instead of duplicating auth logic.
-    const authResponse = await baseWorker.fetch(internalRequest(request, "/api/auth/me"), env as never);
-    if (!authResponse.ok) return authResponse;
+    if (request.method !== "POST") {
+      return jsonResponse(request, env, { error: "Method not allowed" }, 405);
+    }
+
+    const origin = request.headers.get("origin");
+    if (env.PUBLIC_ORIGIN && origin && origin !== env.PUBLIC_ORIGIN) {
+      return jsonResponse(request, env, { error: "Origin not allowed" }, 403);
+    }
 
     let body: Record<string, unknown>;
     try {
       const contentType = request.headers.get("content-type") ?? "";
       if (!contentType.toLowerCase().startsWith("application/json")) {
-        return jsonResponse({ error: "JSON body required" }, 400, authResponse);
+        return jsonResponse(request, env, { error: "JSON body required" }, 400);
       }
       body = await request.json() as Record<string, unknown>;
     } catch {
-      return jsonResponse({ error: "Invalid JSON body" }, 400, authResponse);
+      return jsonResponse(request, env, { error: "Invalid JSON body" }, 400);
     }
 
     const built = buildPrompt(body.messages);
-    if (!built) return jsonResponse({ error: "Invalid messages" }, 400, authResponse);
+    if (!built) return jsonResponse(request, env, { error: "Invalid messages" }, 400);
     if (built.wordCount > MAX_PROMPT_WORDS) {
-      return jsonResponse({ error: "PROMPT_TOO_LONG", max_words: MAX_PROMPT_WORDS, word_count: built.wordCount }, 400, authResponse);
+      return jsonResponse(request, env, {
+        error: "PROMPT_TOO_LONG",
+        max_words: MAX_PROMPT_WORDS,
+        word_count: built.wordCount,
+      }, 400);
     }
 
     if (!env.INFERENCE_URL) {
-      return jsonResponse({ error: "Inference service is not configured" }, 503, authResponse);
+      return jsonResponse(request, env, { error: "Inference service is not configured" }, 503);
     }
 
-    // Check credits before spending GPU time. The existing /api/chat/consume endpoint
-    // performs the authoritative atomic decrement after a successful inference.
-    const creditsResponse = await baseWorker.fetch(internalRequest(request, "/api/account/credits"), env as never);
-    if (!creditsResponse.ok) return creditsResponse;
-    let creditsData: Record<string, unknown>;
-    try {
-      creditsData = await creditsResponse.json() as Record<string, unknown>;
-    } catch {
-      return jsonResponse({ error: "Unable to verify credits" }, 502, authResponse);
-    }
-    const credits = creditsData.credits as Record<string, unknown> | undefined;
-    if (!credits || Number(credits.total_usable_credits ?? 0) <= 0) {
-      return jsonResponse({ error: "INSUFFICIENT_CREDITS" }, 402, creditsResponse);
+    // Temporary public-test path: the same access code used by the frontend
+    // gates inference while the full account/session UI is not wired into this build.
+    const accessMode = await accessCodeAllowed(request, env);
+    let authenticated = false;
+
+    if (!accessMode) {
+      const authResponse = await baseWorker.fetch(internalRequest(request, "/api/auth/me"), env as never);
+      if (!authResponse.ok) return authResponse;
+      authenticated = true;
+
+      const creditsResponse = await baseWorker.fetch(internalRequest(request, "/api/account/credits"), env as never);
+      if (!creditsResponse.ok) return creditsResponse;
+      let creditsData: Record<string, unknown>;
+      try {
+        creditsData = await creditsResponse.json() as Record<string, unknown>;
+      } catch {
+        return jsonResponse(request, env, { error: "Unable to verify credits" }, 502);
+      }
+      const credits = creditsData.credits as Record<string, unknown> | undefined;
+      if (!credits || Number(credits.total_usable_credits ?? 0) <= 0) {
+        return jsonResponse(request, env, { error: "INSUFFICIENT_CREDITS" }, 402);
+      }
     }
 
     const inferenceBase = env.INFERENCE_URL.replace(/\/$/, "");
@@ -164,42 +200,42 @@ export default {
         signal: controller.signal,
       });
     } catch {
-      return jsonResponse({ error: "INFERENCE_UNAVAILABLE" }, 503, authResponse);
+      return jsonResponse(request, env, { error: "INFERENCE_UNAVAILABLE" }, 503);
     } finally {
       clearTimeout(timeout);
     }
 
     if (!inferenceResponse.ok) {
-      return jsonResponse({ error: "INFERENCE_FAILED" }, 502, authResponse);
+      return jsonResponse(request, env, { error: "INFERENCE_FAILED" }, 502);
     }
 
     let inferenceData: Record<string, unknown>;
     try {
       inferenceData = await inferenceResponse.json() as Record<string, unknown>;
     } catch {
-      return jsonResponse({ error: "Invalid inference response" }, 502, authResponse);
+      return jsonResponse(request, env, { error: "Invalid inference response" }, 502);
     }
 
     const generated = typeof inferenceData.response === "string" ? inferenceData.response : "";
     if (!generated || generated.length > MAX_INFERENCE_RESPONSE_CHARS) {
-      return jsonResponse({ error: "Invalid inference output" }, 502, authResponse);
+      return jsonResponse(request, env, { error: "Invalid inference output" }, 502);
     }
 
-    // Charge only after the model successfully generated a response.
-    const consumeBody = JSON.stringify({ prompt: built.prompt });
-    const consumeResponse = await baseWorker.fetch(
-      internalRequest(request, "/api/chat/consume", "POST", consumeBody),
-      env as never,
-    );
-    if (!consumeResponse.ok) return consumeResponse;
+    if (authenticated) {
+      const consumeResponse = await baseWorker.fetch(
+        internalRequest(request, "/api/chat/consume", "POST", JSON.stringify({ prompt: built.prompt })),
+        env as never,
+      );
+      if (!consumeResponse.ok) return consumeResponse;
+    }
 
     const wantsStream = body.stream === true;
-    if (wantsStream) return sseResponse(generated, consumeResponse);
+    if (wantsStream) return sseResponse(request, env, generated);
 
-    return jsonResponse({
+    return jsonResponse(request, env, {
       ok: true,
       message: { role: "assistant", content: generated },
       model: "ra-1-remote",
-    }, 200, consumeResponse);
+    }, 200);
   },
 };
