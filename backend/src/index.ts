@@ -37,16 +37,12 @@ interface SessionUserRow extends UserRow {
   expires_at: string;
 }
 
-interface CreditRow {
-  subscription_credits: number;
-  purchased_credits: number;
-}
-
 const PBKDF2_ITERATIONS = 100_000;
 const SESSION_DAYS = 30;
 const FREE_TRIAL_CREDITS = 10;
 const MAX_PROMPT_WORDS = 1000;
 const TRIAL_KEY_BYTES = 24;
+const LIFETIME_DAILY_REQUEST_LIMIT = 30_000;
 
 const PLANS = {
   weekly: {
@@ -79,8 +75,23 @@ const PLANS = {
     price_inr: 9999,
     duration_days: null,
     included_credits: null,
-    credit_policy: "configured_later",
+    daily_request_limit: LIFETIME_DAILY_REQUEST_LIMIT,
     access: "lifetime",
+  },
+} as const;
+
+const EXTRA_CREDIT_PACKS = [
+  { id: "pack_500", name: "+500 credits", credits: 500, price_inr: null },
+  { id: "pack_1000", name: "+1,000 credits", credits: 1000, price_inr: null },
+  { id: "pack_5000", name: "+5,000 credits", credits: 5000, price_inr: null },
+] as const;
+
+const PRODUCTS = {
+  source_code: {
+    id: "source_code",
+    name: "RA-1 Source Code",
+    price_inr: 14999,
+    product_type: "source_code",
   },
 } as const;
 
@@ -206,21 +217,20 @@ async function authenticatedUser(request: Request, env: Env): Promise<SessionUse
 }
 
 async function ensureCreditsRow(env: Env, userId: string): Promise<void> {
-  await env.DB.prepare(
-    `INSERT OR IGNORE INTO credits (user_id) VALUES (?)`,
-  ).bind(userId).run();
+  await env.DB.prepare(`INSERT OR IGNORE INTO credits (user_id) VALUES (?)`).bind(userId).run();
 }
 
 async function creditSummary(env: Env, userId: string) {
   await ensureCreditsRow(env, userId);
   const row = await env.DB.prepare(
     `SELECT u.plan, u.subscription_expires_at,
-            c.subscription_credits, c.purchased_credits
+            c.trial_credits, c.subscription_credits, c.purchased_credits
      FROM users u JOIN credits c ON c.user_id = u.id
      WHERE u.id = ?`,
   ).bind(userId).first<{
     plan: string;
     subscription_expires_at: string | null;
+    trial_credits: number;
     subscription_credits: number;
     purchased_credits: number;
   }>();
@@ -234,26 +244,68 @@ async function creditSummary(env: Env, userId: string) {
       : !!row.subscription_expires_at && row.subscription_expires_at > new Date().toISOString();
 
   const usableSubscriptionCredits = subscriptionActive ? row.subscription_credits : 0;
+  let lifetimeDailyRemaining: number | null = null;
+
+  if (row.plan === "lifetime") {
+    const usage = await env.DB.prepare(
+      `SELECT COALESCE(SUM(credits_used), 0) AS used
+       FROM usage
+       WHERE user_id = ? AND action = 'CHAT_USAGE' AND created_at >= date('now')`,
+    ).bind(userId).first<{ used: number }>();
+    lifetimeDailyRemaining = Math.max(0, LIFETIME_DAILY_REQUEST_LIMIT - Number(usage?.used ?? 0));
+  }
+
+  const totalUsableCredits = row.plan === "lifetime"
+    ? lifetimeDailyRemaining! + row.purchased_credits
+    : row.trial_credits + usableSubscriptionCredits + row.purchased_credits;
+
   return {
     plan: row.plan,
     subscription_expires_at: row.subscription_expires_at,
+    trial_credits: row.trial_credits,
     subscription_credits: usableSubscriptionCredits,
     purchased_credits: row.purchased_credits,
-    total_usable_credits: usableSubscriptionCredits + row.purchased_credits,
+    lifetime_daily_request_limit: row.plan === "lifetime" ? LIFETIME_DAILY_REQUEST_LIMIT : null,
+    lifetime_daily_requests_remaining: lifetimeDailyRemaining,
+    total_usable_credits: totalUsableCredits,
   };
 }
 
-async function consumeCredit(env: Env, userId: string, metadata: string): Promise<"subscription" | "purchased" | null> {
+async function consumeCredit(env: Env, userId: string, metadata: string): Promise<"trial" | "subscription" | "purchased" | "lifetime" | null> {
   await ensureCreditsRow(env, userId);
 
-  const activeSubscriptionCondition = `(u.plan = 'free' OR u.plan = 'lifetime' OR (u.subscription_expires_at IS NOT NULL AND u.subscription_expires_at > CURRENT_TIMESTAMP))`;
+  const user = await env.DB.prepare(`SELECT plan, subscription_expires_at FROM users WHERE id = ?`).bind(userId).first<{
+    plan: string;
+    subscription_expires_at: string | null;
+  }>();
+  if (!user) return null;
 
-  const subscriptionBatch = await env.DB.batch([
+  if (user.plan === "lifetime") {
+    const batch = await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO usage (id, user_id, action, credits_used, metadata)
+         SELECT ?, ?, 'CHAT_USAGE', 1, ?
+         WHERE (SELECT COALESCE(SUM(credits_used), 0) FROM usage
+                WHERE user_id = ? AND action = 'CHAT_USAGE' AND created_at >= date('now')) < ?`,
+      ).bind(crypto.randomUUID(), userId, metadata, userId, LIFETIME_DAILY_REQUEST_LIMIT),
+      env.DB.prepare(
+        `INSERT INTO credit_ledger (id, user_id, type, amount, metadata)
+         SELECT ?, ?, 'CHAT_USAGE', -1, ?
+         WHERE changes() = 1`,
+      ).bind(crypto.randomUUID(), userId, metadata),
+    ]);
+    return (batch[0]?.meta?.changes ?? 0) === 1 ? "lifetime" : null;
+  }
+
+  const activeSubscription = user.plan === "free" || (
+    !!user.subscription_expires_at && user.subscription_expires_at > new Date().toISOString()
+  );
+
+  const trialBatch = await env.DB.batch([
     env.DB.prepare(
-      `UPDATE credits SET subscription_credits = subscription_credits - 1,
+      `UPDATE credits SET trial_credits = trial_credits - 1,
               lifetime_used = lifetime_used + 1, updated_at = CURRENT_TIMESTAMP
-       WHERE user_id = ? AND subscription_credits > 0
-         AND EXISTS (SELECT 1 FROM users u WHERE u.id = credits.user_id AND ${activeSubscriptionCondition})`,
+       WHERE user_id = ? AND trial_credits > 0`,
     ).bind(userId),
     env.DB.prepare(
       `INSERT INTO credit_ledger (id, user_id, type, amount, metadata)
@@ -264,8 +316,26 @@ async function consumeCredit(env: Env, userId: string, metadata: string): Promis
        SELECT ?, ?, 'CHAT_USAGE', 1, ? WHERE changes() = 1`,
     ).bind(crypto.randomUUID(), userId, metadata),
   ]);
+  if ((trialBatch[0]?.meta?.changes ?? 0) === 1) return "trial";
 
-  if ((subscriptionBatch[0]?.meta?.changes ?? 0) === 1) return "subscription";
+  if (activeSubscription) {
+    const subscriptionBatch = await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE credits SET subscription_credits = subscription_credits - 1,
+                lifetime_used = lifetime_used + 1, updated_at = CURRENT_TIMESTAMP
+         WHERE user_id = ? AND subscription_credits > 0`,
+      ).bind(userId),
+      env.DB.prepare(
+        `INSERT INTO credit_ledger (id, user_id, type, amount, metadata)
+         SELECT ?, ?, 'CHAT_USAGE', -1, ? WHERE changes() = 1`,
+      ).bind(crypto.randomUUID(), userId, metadata),
+      env.DB.prepare(
+        `INSERT INTO usage (id, user_id, action, credits_used, metadata)
+         SELECT ?, ?, 'CHAT_USAGE', 1, ? WHERE changes() = 1`,
+      ).bind(crypto.randomUUID(), userId, metadata),
+    ]);
+    if ((subscriptionBatch[0]?.meta?.changes ?? 0) === 1) return "subscription";
+  }
 
   const purchasedBatch = await env.DB.batch([
     env.DB.prepare(
@@ -317,7 +387,7 @@ export default {
     }
 
     if (url.pathname === "/api/plans" && request.method === "GET") {
-      return response({ ok: true, plans: PLANS }, 200, origin);
+      return response({ ok: true, plans: PLANS, extra_credit_packs: EXTRA_CREDIT_PACKS, products: PRODUCTS }, 200, origin);
     }
 
     if (url.pathname === "/api/auth/register" && request.method === "POST") {
@@ -446,12 +516,9 @@ export default {
           env.DB.prepare(
             `INSERT INTO telegram_verifications (user_id, telegram_user_id) VALUES (?, ?)`,
           ).bind(user.id, key.telegram_user_id),
+          env.DB.prepare(`INSERT OR IGNORE INTO credits (user_id) VALUES (?)`).bind(user.id),
           env.DB.prepare(
-            `INSERT OR IGNORE INTO credits (user_id) VALUES (?)`,
-          ).bind(user.id),
-          env.DB.prepare(
-            `UPDATE credits SET subscription_credits = subscription_credits + ?,
-                    lifetime_earned = lifetime_earned + ?, updated_at = CURRENT_TIMESTAMP
+            `UPDATE credits SET trial_credits = trial_credits + ?, lifetime_earned = lifetime_earned + ?, updated_at = CURRENT_TIMESTAMP
              WHERE user_id = ?`,
           ).bind(FREE_TRIAL_CREDITS, FREE_TRIAL_CREDITS, user.id),
           env.DB.prepare(
@@ -461,6 +528,9 @@ export default {
           env.DB.prepare(
             `UPDATE trial_keys SET used_by_user_id = ?, used_at = CURRENT_TIMESTAMP WHERE id = ? AND used_by_user_id IS NULL`,
           ).bind(user.id, key.id),
+          env.DB.prepare(
+            `UPDATE users SET trial_started_at = COALESCE(trial_started_at, CURRENT_TIMESTAMP), trial_ends_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+          ).bind(user.id),
         ]);
 
         const credits = await creditSummary(env, user.id);
@@ -483,9 +553,7 @@ export default {
       const rawKey = randomToken(TRIAL_KEY_BYTES);
       const keyHash = await sha256(rawKey);
       try {
-        await env.DB.prepare(
-          `INSERT INTO trial_keys (id, trial_key_hash, telegram_user_id) VALUES (?, ?, ?)`,
-        ).bind(crypto.randomUUID(), keyHash, telegramUserId).run();
+        await env.DB.prepare(`INSERT INTO trial_keys (id, trial_key_hash, telegram_user_id) VALUES (?, ?, ?)`).bind(crypto.randomUUID(), keyHash, telegramUserId).run();
         return response({ ok: true, trial_key: rawKey }, 201, origin);
       } catch {
         return response({ error: "This Telegram identity has already been issued a trial key" }, 409, origin);
