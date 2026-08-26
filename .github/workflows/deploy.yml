@@ -32,6 +32,8 @@ jobs:
         run: npm ci
 
       - name: Build frontend
+        env:
+          VITE_RA1_ACCESS_CODE: RA1TEST2026
         run: npm run build
 
       - name: Setup Pages
