@@ -95,6 +95,12 @@ function buildPrompt(messages: unknown): { prompt: string; wordCount: number } |
   return { prompt, wordCount: countWords(prompt) };
 }
 
+function cleanInferenceOutput(value: string): string {
+  let cleaned = value.replace(/<think>[\s\S]*?<\/think>/gi, "");
+  cleaned = cleaned.replace(/^\s*<think>[\s\S]*$/i, "");
+  return cleaned.trim();
+}
+
 async function accessCodeAllowed(request: Request, env: InferenceEnv): Promise<boolean> {
   if (!env.RA1_ACCESS_CODE) return false;
   const provided = request.headers.get("x-ra1-access-code") ?? "";
@@ -160,8 +166,6 @@ export default {
       return jsonResponse(request, env, { error: "Inference service is not configured" }, 503);
     }
 
-    // Temporary public-test path: the same access code used by the frontend
-    // gates inference while the full account/session UI is not wired into this build.
     const accessMode = await accessCodeAllowed(request, env);
     let authenticated = false;
 
@@ -216,9 +220,14 @@ export default {
       return jsonResponse(request, env, { error: "Invalid inference response" }, 502);
     }
 
-    const generated = typeof inferenceData.response === "string" ? inferenceData.response : "";
-    if (!generated || generated.length > MAX_INFERENCE_RESPONSE_CHARS) {
+    const rawGenerated = typeof inferenceData.response === "string" ? inferenceData.response : "";
+    if (!rawGenerated || rawGenerated.length > MAX_INFERENCE_RESPONSE_CHARS) {
       return jsonResponse(request, env, { error: "Invalid inference output" }, 502);
+    }
+
+    const generated = cleanInferenceOutput(rawGenerated);
+    if (!generated) {
+      return jsonResponse(request, env, { error: "MODEL_RETURNED_REASONING_ONLY" }, 502);
     }
 
     if (authenticated) {
