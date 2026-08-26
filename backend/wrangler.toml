@@ -1,11 +1,14 @@
 name = "ra-1-the-uncensored-ai"
-main = "src/index.ts"
+main = "src/entry.ts"
 compatibility_date = "2026-08-26"
 
 [vars]
 ENVIRONMENT = "development"
 # Set PUBLIC_ORIGIN to the exact production frontend origin before production deployment.
 # PUBLIC_ORIGIN = "https://your-app.vercel.app"
+
+[secrets]
+required = ["INFERENCE_URL"]
 
 [[d1_databases]]
 binding = "DB"
