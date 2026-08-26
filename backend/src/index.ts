@@ -15,11 +15,20 @@ interface D1Database {
   batch(statements: D1Statement[]): Promise<D1Result[]>;
 }
 
+interface RateLimiter {
+  limit(options: { key: string }): Promise<{ success: boolean }>;
+}
+
 interface Env {
   DB: D1Database;
   ENVIRONMENT?: string;
   PUBLIC_ORIGIN?: string;
   TRIAL_BOT_SECRET?: string;
+  LOGIN_LIMITER?: RateLimiter;
+  REGISTER_LIMITER?: RateLimiter;
+  TRIAL_LIMITER?: RateLimiter;
+  INTERNAL_TRIAL_LIMITER?: RateLimiter;
+  CHAT_LIMITER?: RateLimiter;
 }
 
 interface UserRow {
@@ -39,8 +48,10 @@ interface SessionUserRow extends UserRow {
 
 const PBKDF2_ITERATIONS = 100_000;
 const SESSION_DAYS = 30;
+const MAX_ACTIVE_SESSIONS_PER_USER = 10;
 const FREE_TRIAL_CREDITS = 10;
 const MAX_PROMPT_WORDS = 1000;
+const MAX_JSON_BYTES = 64 * 1024;
 const TRIAL_KEY_BYTES = 24;
 const LIFETIME_DAILY_REQUEST_LIMIT = 30_000;
 
@@ -100,13 +111,56 @@ const jsonHeaders = {
   "cache-control": "no-store",
 };
 
+function applySecurityHeaders(headers: Headers): void {
+  headers.set("x-content-type-options", "nosniff");
+  headers.set("x-frame-options", "DENY");
+  headers.set("referrer-policy", "no-referrer");
+  headers.set("permissions-policy", "camera=(), microphone=(), geolocation=()");
+  headers.set("content-security-policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
+  headers.set("strict-transport-security", "max-age=31536000; includeSubDomains");
+}
+
 function response(body: Record<string, unknown>, status = 200, origin?: string) {
   const headers = new Headers(jsonHeaders);
+  applySecurityHeaders(headers);
   if (origin) {
     headers.set("access-control-allow-origin", origin);
     headers.set("vary", "Origin");
   }
   return new Response(JSON.stringify(body), { status, headers });
+}
+
+function corsHeaders(origin: string): Headers {
+  const headers = new Headers();
+  headers.set("access-control-allow-origin", origin);
+  headers.set("access-control-allow-methods", "GET,POST,DELETE,OPTIONS");
+  headers.set("access-control-allow-headers", "content-type, authorization");
+  headers.set("access-control-max-age", "86400");
+  headers.set("vary", "Origin");
+  applySecurityHeaders(headers);
+  return headers;
+}
+
+function requestOriginAllowed(request: Request, configuredOrigin?: string): boolean {
+  const requestOrigin = request.headers.get("origin");
+  if (!requestOrigin) return true;
+  if (!configuredOrigin) return false;
+  return requestOrigin === configuredOrigin;
+}
+
+function clientKey(request: Request): string {
+  return request.headers.get("cf-connecting-ip") || "unknown";
+}
+
+async function rateLimit(limiter: RateLimiter | undefined, key: string): Promise<boolean> {
+  if (!limiter) return true;
+  try {
+    const result = await limiter.limit({ key });
+    return result.success;
+  } catch {
+    // Fail closed for configured security controls.
+    return false;
+  }
 }
 
 function toBase64Url(bytes: Uint8Array): string {
@@ -149,9 +203,16 @@ async function verifyPassword(password: string, stored: string): Promise<boolean
   const parts = stored.split("$");
   if (parts.length !== 4 || parts[0] !== "pbkdf2") return false;
   const iterations = Number(parts[1]);
-  if (!Number.isSafeInteger(iterations) || iterations <= 0) return false;
-  const salt = fromBase64Url(parts[2]);
-  const expected = fromBase64Url(parts[3]);
+  if (!Number.isSafeInteger(iterations) || iterations <= 0 || iterations > 1_000_000) return false;
+  let salt: Uint8Array;
+  let expected: Uint8Array;
+  try {
+    salt = fromBase64Url(parts[2]);
+    expected = fromBase64Url(parts[3]);
+  } catch {
+    return false;
+  }
+  if (salt.byteLength !== 16 || expected.byteLength !== 32) return false;
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
   const bits = await crypto.subtle.deriveBits(
     { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
@@ -159,8 +220,7 @@ async function verifyPassword(password: string, stored: string): Promise<boolean
     expected.byteLength * 8,
   );
   const actual = new Uint8Array(bits);
-  if (actual.length !== expected.length) return false;
-  let difference = 0;
+  let difference = actual.length ^ expected.length;
   for (let i = 0; i < actual.length; i += 1) difference |= actual[i] ^ expected[i];
   return difference === 0;
 }
@@ -183,15 +243,31 @@ function countWords(value: string): number {
 }
 
 async function readJson(request: Request): Promise<Record<string, unknown> | null> {
+  const contentType = request.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().startsWith("application/json")) return null;
+  const declaredLength = Number(request.headers.get("content-length") ?? "0");
+  if (declaredLength > MAX_JSON_BYTES) return null;
   try {
-    const body = await request.json();
-    return body && typeof body === "object" ? body as Record<string, unknown> : null;
+    const text = await request.text();
+    if (new TextEncoder().encode(text).byteLength > MAX_JSON_BYTES) return null;
+    const body = JSON.parse(text);
+    return body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : null;
   } catch {
     return null;
   }
 }
 
 async function createSession(env: Env, userId: string): Promise<string> {
+  await env.DB.prepare("DELETE FROM sessions WHERE user_id = ? AND expires_at <= CURRENT_TIMESTAMP").bind(userId).run();
+  const count = await env.DB.prepare("SELECT COUNT(*) AS count FROM sessions WHERE user_id = ?").bind(userId).first<{ count: number }>();
+  if (Number(count?.count ?? 0) >= MAX_ACTIVE_SESSIONS_PER_USER) {
+    await env.DB.prepare(
+      `DELETE FROM sessions WHERE id IN (
+         SELECT id FROM sessions WHERE user_id = ? ORDER BY created_at ASC LIMIT 1
+       )`,
+    ).bind(userId).run();
+  }
+
   const rawToken = randomToken(32);
   const tokenHash = await sha256(rawToken);
   const sessionId = crypto.randomUUID();
@@ -204,9 +280,9 @@ async function createSession(env: Env, userId: string): Promise<string> {
 
 async function authenticatedUser(request: Request, env: Env): Promise<SessionUserRow | null> {
   const header = request.headers.get("authorization") ?? "";
-  if (!header.startsWith("Bearer ")) return null;
-  const rawToken = header.slice(7).trim();
-  if (!rawToken) return null;
+  if (!/^Bearer\s+\S+$/i.test(header)) return null;
+  const rawToken = header.slice(header.indexOf(" ") + 1).trim();
+  if (rawToken.length < 32 || rawToken.length > 128) return null;
   const tokenHash = await sha256(rawToken);
   return env.DB.prepare(
     `SELECT u.id, u.email, u.plan, u.trial_started_at, u.trial_ends_at,
@@ -290,8 +366,7 @@ async function consumeCredit(env: Env, userId: string, metadata: string): Promis
       ).bind(crypto.randomUUID(), userId, metadata, userId, LIFETIME_DAILY_REQUEST_LIMIT),
       env.DB.prepare(
         `INSERT INTO credit_ledger (id, user_id, type, amount, metadata)
-         SELECT ?, ?, 'CHAT_USAGE', -1, ?
-         WHERE changes() = 1`,
+         SELECT ?, ?, 'CHAT_USAGE', -1, ? WHERE changes() = 1`,
       ).bind(crypto.randomUUID(), userId, metadata),
     ]);
     return (batch[0]?.meta?.changes ?? 0) === 1 ? "lifetime" : null;
@@ -360,47 +435,53 @@ async function consumeCredit(env: Env, userId: string, metadata: string): Promis
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    const origin = env.PUBLIC_ORIGIN;
+    const configuredOrigin = env.PUBLIC_ORIGIN?.replace(/\/$/, "");
+
+    if (!requestOriginAllowed(request, configuredOrigin)) {
+      return response({ error: "Forbidden origin" }, 403);
+    }
+
+    const requestOrigin = request.headers.get("origin");
+    const responseOrigin = requestOrigin && configuredOrigin && requestOrigin === configuredOrigin ? configuredOrigin : undefined;
 
     if (request.method === "OPTIONS") {
-      const headers = new Headers();
-      headers.set("access-control-allow-methods", "GET,POST,DELETE,OPTIONS");
-      headers.set("access-control-allow-headers", "content-type, authorization");
-      if (origin) {
-        headers.set("access-control-allow-origin", origin);
-        headers.set("vary", "Origin");
-      }
-      return new Response(null, { status: 204, headers });
+      if (!responseOrigin) return new Response(null, { status: 403, headers: applyPreflightSecurity() });
+      return new Response(null, { status: 204, headers: corsHeaders(responseOrigin) });
     }
 
     if (url.pathname === "/api/health" && request.method === "GET") {
-      return response({ ok: true, service: "ra-1-api", environment: env.ENVIRONMENT ?? "development" }, 200, origin);
+      return response({ ok: true, service: "ra-1-api", environment: env.ENVIRONMENT ?? "production" }, 200, responseOrigin);
     }
 
     if (url.pathname === "/api/db-health" && request.method === "GET") {
       try {
         const result = await env.DB.prepare("SELECT 1 AS ok").first<{ ok: number }>();
-        return response({ ok: result?.ok === 1, database: "d1" }, 200, origin);
+        return response({ ok: result?.ok === 1, database: "d1" }, 200, responseOrigin);
       } catch {
-        return response({ ok: false, database: "d1" }, 503, origin);
+        return response({ ok: false, database: "d1" }, 503, responseOrigin);
       }
     }
 
     if (url.pathname === "/api/plans" && request.method === "GET") {
-      return response({ ok: true, plans: PLANS, extra_credit_packs: EXTRA_CREDIT_PACKS, products: PRODUCTS }, 200, origin);
+      return response({ ok: true, plans: PLANS, extra_credit_packs: EXTRA_CREDIT_PACKS, products: PRODUCTS }, 200, responseOrigin);
     }
 
     if (url.pathname === "/api/auth/register" && request.method === "POST") {
+      const ip = clientKey(request);
+      if (!(await rateLimit(env.REGISTER_LIMITER, `register:${ip}`))) {
+        return response({ error: "RATE_LIMITED" }, 429, responseOrigin);
+      }
       const body = await readJson(request);
-      const email = normalizeEmail(body?.email);
-      const password = body?.password;
+      if (!body) return response({ error: "Invalid or oversized JSON body" }, 400, responseOrigin);
+      const email = normalizeEmail(body.email);
+      const password = body.password;
       if (!email || !validPassword(password)) {
-        return response({ error: "Valid email and password (8-128 characters) are required" }, 400, origin);
+        return response({ error: "Valid email and password (8-128 characters) are required" }, 400, responseOrigin);
       }
 
       try {
         const existing = await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first<{ id: string }>();
-        if (existing) return response({ error: "Account already exists" }, 409, origin);
+        if (existing) return response({ error: "Account already exists" }, 409, responseOrigin);
 
         const userId = crypto.randomUUID();
         const passwordHash = await hashPassword(password);
@@ -415,18 +496,24 @@ export default {
                   subscription_started_at, subscription_expires_at, created_at
            FROM users WHERE id = ?`,
         ).bind(userId).first<UserRow>();
-        return response({ ok: true, token, user }, 201, origin);
+        return response({ ok: true, token, user }, 201, responseOrigin);
       } catch (error) {
         console.error("register_error", error);
-        return response({ error: "Unable to create account" }, 500, origin);
+        return response({ error: "Unable to create account" }, 500, responseOrigin);
       }
     }
 
     if (url.pathname === "/api/auth/login" && request.method === "POST") {
       const body = await readJson(request);
-      const email = normalizeEmail(body?.email);
-      const password = body?.password;
-      if (!email || typeof password !== "string") return response({ error: "Email and password are required" }, 400, origin);
+      if (!body) return response({ error: "Invalid or oversized JSON body" }, 400, responseOrigin);
+      const email = normalizeEmail(body.email);
+      const password = body.password;
+      if (!email || typeof password !== "string" || password.length > 128) {
+        return response({ error: "Email and password are required" }, 400, responseOrigin);
+      }
+      if (!(await rateLimit(env.LOGIN_LIMITER, `login:${email}`))) {
+        return response({ error: "RATE_LIMITED" }, 429, responseOrigin);
+      }
 
       try {
         const user = await env.DB.prepare(
@@ -435,22 +522,22 @@ export default {
            FROM users WHERE email = ?`,
         ).bind(email).first<UserRow & { password_hash: string }>();
         if (!user || !(await verifyPassword(password, user.password_hash))) {
-          return response({ error: "Invalid email or password" }, 401, origin);
+          return response({ error: "Invalid email or password" }, 401, responseOrigin);
         }
         await ensureCreditsRow(env, user.id);
         const token = await createSession(env, user.id);
         const { password_hash: _passwordHash, ...safeUser } = user;
-        return response({ ok: true, token, user: safeUser }, 200, origin);
+        return response({ ok: true, token, user: safeUser }, 200, responseOrigin);
       } catch (error) {
         console.error("login_error", error);
-        return response({ error: "Unable to sign in" }, 500, origin);
+        return response({ error: "Unable to sign in" }, 500, responseOrigin);
       }
     }
 
     if (url.pathname === "/api/auth/me" && request.method === "GET") {
       try {
         const user = await authenticatedUser(request, env);
-        if (!user) return response({ error: "Unauthorized" }, 401, origin);
+        if (!user) return response({ error: "Unauthorized" }, 401, responseOrigin);
         return response({
           ok: true,
           user: {
@@ -463,45 +550,49 @@ export default {
             subscription_expires_at: user.subscription_expires_at,
             created_at: user.created_at,
           },
-        }, 200, origin);
+        }, 200, responseOrigin);
       } catch (error) {
         console.error("auth_me_error", error);
-        return response({ error: "Unable to load account" }, 500, origin);
+        return response({ error: "Unable to load account" }, 500, responseOrigin);
       }
     }
 
     if (url.pathname === "/api/auth/logout" && request.method === "POST") {
       const header = request.headers.get("authorization") ?? "";
-      if (header.startsWith("Bearer ")) {
-        const rawToken = header.slice(7).trim();
-        if (rawToken) {
+      if (/^Bearer\s+\S+$/i.test(header)) {
+        const rawToken = header.slice(header.indexOf(" ") + 1).trim();
+        if (rawToken.length >= 32 && rawToken.length <= 128) {
           const tokenHash = await sha256(rawToken);
           await env.DB.prepare("DELETE FROM sessions WHERE token_hash = ?").bind(tokenHash).run();
         }
       }
-      return response({ ok: true }, 200, origin);
+      return response({ ok: true }, 200, responseOrigin);
     }
 
     if (url.pathname === "/api/account/credits" && request.method === "GET") {
       const user = await authenticatedUser(request, env);
-      if (!user) return response({ error: "Unauthorized" }, 401, origin);
+      if (!user) return response({ error: "Unauthorized" }, 401, responseOrigin);
       try {
         const credits = await creditSummary(env, user.id);
-        return response({ ok: true, credits }, 200, origin);
+        return response({ ok: true, credits }, 200, responseOrigin);
       } catch (error) {
         console.error("credits_error", error);
-        return response({ error: "Unable to load credits" }, 500, origin);
+        return response({ error: "Unable to load credits" }, 500, responseOrigin);
       }
     }
 
     if (url.pathname === "/api/trial/activate" && request.method === "POST") {
       const user = await authenticatedUser(request, env);
-      if (!user) return response({ error: "Unauthorized" }, 401, origin);
+      if (!user) return response({ error: "Unauthorized" }, 401, responseOrigin);
+      if (!(await rateLimit(env.TRIAL_LIMITER, `trial:${user.id}`))) {
+        return response({ error: "RATE_LIMITED" }, 429, responseOrigin);
+      }
 
       const body = await readJson(request);
-      const trialKey = typeof body?.trial_key === "string" ? body.trial_key.trim() : "";
+      if (!body) return response({ error: "Invalid or oversized JSON body" }, 400, responseOrigin);
+      const trialKey = typeof body.trial_key === "string" ? body.trial_key.trim() : "";
       if (!trialKey || trialKey.length < 16 || trialKey.length > 256) {
-        return response({ error: "Valid trial key is required" }, 400, origin);
+        return response({ error: "Valid trial key is required" }, 400, responseOrigin);
       }
 
       try {
@@ -510,7 +601,7 @@ export default {
           `SELECT id, telegram_user_id FROM trial_keys
            WHERE trial_key_hash = ? AND used_by_user_id IS NULL`,
         ).bind(trialKeyHash).first<{ id: string; telegram_user_id: string }>();
-        if (!key) return response({ error: "Invalid or already used trial key" }, 400, origin);
+        if (!key) return response({ error: "Invalid or already used trial key" }, 400, responseOrigin);
 
         await env.DB.batch([
           env.DB.prepare(
@@ -534,56 +625,72 @@ export default {
         ]);
 
         const credits = await creditSummary(env, user.id);
-        return response({ ok: true, granted_credits: FREE_TRIAL_CREDITS, credits }, 200, origin);
+        return response({ ok: true, granted_credits: FREE_TRIAL_CREDITS, credits }, 200, responseOrigin);
       } catch (error) {
         console.error("trial_activation_error", error);
-        return response({ error: "Trial activation failed or the Telegram identity has already claimed a trial" }, 409, origin);
+        return response({ error: "Trial activation failed or the Telegram identity has already claimed a trial" }, 409, responseOrigin);
       }
     }
 
     if (url.pathname === "/api/internal/trial-keys" && request.method === "POST") {
-      if (!env.TRIAL_BOT_SECRET) return response({ error: "Trial key service is not configured" }, 503, origin);
+      if (!env.TRIAL_BOT_SECRET) return response({ error: "Trial key service is not configured" }, 503, responseOrigin);
       const provided = request.headers.get("x-trial-bot-secret") ?? "";
-      if (provided !== env.TRIAL_BOT_SECRET) return response({ error: "Unauthorized" }, 401, origin);
+      if (provided.length < 16 || provided.length > 256 || provided !== env.TRIAL_BOT_SECRET) {
+        return response({ error: "Unauthorized" }, 401, responseOrigin);
+      }
+      if (!(await rateLimit(env.INTERNAL_TRIAL_LIMITER, `internal-trial:${clientKey(request)}`))) {
+        return response({ error: "RATE_LIMITED" }, 429, responseOrigin);
+      }
 
       const body = await readJson(request);
-      const telegramUserId = typeof body?.telegram_user_id === "string" ? body.telegram_user_id.trim() : "";
-      if (!telegramUserId || telegramUserId.length > 128) return response({ error: "telegram_user_id is required" }, 400, origin);
+      if (!body) return response({ error: "Invalid or oversized JSON body" }, 400, responseOrigin);
+      const telegramUserId = typeof body.telegram_user_id === "string" ? body.telegram_user_id.trim() : "";
+      if (!telegramUserId || telegramUserId.length > 128) return response({ error: "telegram_user_id is required" }, 400, responseOrigin);
 
       const rawKey = randomToken(TRIAL_KEY_BYTES);
       const keyHash = await sha256(rawKey);
       try {
         await env.DB.prepare(`INSERT INTO trial_keys (id, trial_key_hash, telegram_user_id) VALUES (?, ?, ?)`).bind(crypto.randomUUID(), keyHash, telegramUserId).run();
-        return response({ ok: true, trial_key: rawKey }, 201, origin);
+        return response({ ok: true, trial_key: rawKey }, 201, responseOrigin);
       } catch {
-        return response({ error: "This Telegram identity has already been issued a trial key" }, 409, origin);
+        return response({ error: "This Telegram identity has already been issued a trial key" }, 409, responseOrigin);
       }
     }
 
     if (url.pathname === "/api/chat/consume" && request.method === "POST") {
       const user = await authenticatedUser(request, env);
-      if (!user) return response({ error: "Unauthorized" }, 401, origin);
+      if (!user) return response({ error: "Unauthorized" }, 401, responseOrigin);
+      if (!(await rateLimit(env.CHAT_LIMITER, `chat:${user.id}`))) {
+        return response({ error: "RATE_LIMITED" }, 429, responseOrigin);
+      }
 
       const body = await readJson(request);
-      const prompt = typeof body?.prompt === "string" ? body.prompt : "";
+      if (!body) return response({ error: "Invalid or oversized JSON body" }, 400, responseOrigin);
+      const prompt = typeof body.prompt === "string" ? body.prompt : "";
       const wordCount = countWords(prompt);
-      if (!prompt.trim()) return response({ error: "Prompt is required" }, 400, origin);
+      if (!prompt.trim()) return response({ error: "Prompt is required" }, 400, responseOrigin);
       if (wordCount > MAX_PROMPT_WORDS) {
-        return response({ error: "PROMPT_TOO_LONG", max_words: MAX_PROMPT_WORDS, word_count: wordCount }, 400, origin);
+        return response({ error: "PROMPT_TOO_LONG", max_words: MAX_PROMPT_WORDS, word_count: wordCount }, 400, responseOrigin);
       }
 
       const credits = await creditSummary(env, user.id);
       if (!credits || credits.total_usable_credits <= 0) {
-        return response({ error: "INSUFFICIENT_CREDITS" }, 402, origin);
+        return response({ error: "INSUFFICIENT_CREDITS" }, 402, responseOrigin);
       }
 
       const source = await consumeCredit(env, user.id, JSON.stringify({ word_count: wordCount }));
-      if (!source) return response({ error: "INSUFFICIENT_CREDITS" }, 402, origin);
+      if (!source) return response({ error: "INSUFFICIENT_CREDITS" }, 402, responseOrigin);
 
       const remaining = await creditSummary(env, user.id);
-      return response({ ok: true, credit_consumed_from: source, credits: remaining }, 200, origin);
+      return response({ ok: true, credit_consumed_from: source, credits: remaining }, 200, responseOrigin);
     }
 
-    return response({ error: "Not found" }, 404, origin);
+    return response({ error: "Not found" }, 404, responseOrigin);
   },
 };
+
+function applyPreflightSecurity(): Headers {
+  const headers = new Headers();
+  applySecurityHeaders(headers);
+  return headers;
+}
