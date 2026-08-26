@@ -1,0 +1,17 @@
+name = "ra-1-api"
+main = "src/index.ts"
+compatibility_date = "2026-08-26"
+
+[vars]
+ENVIRONMENT = "development"
+# Set PUBLIC_ORIGIN to the exact production frontend origin before deployment.
+# PUBLIC_ORIGIN = "https://your-app.vercel.app"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ra-1-db"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+# Create the D1 database first, then replace database_id above.
+# Apply the schema with:
+# wrangler d1 execute ra-1-db --file=./schema.sql
